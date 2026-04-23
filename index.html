@@ -347,6 +347,7 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:
                   <th style="width:100px">Species</th>
                   <th style="width:130px">Client</th>
                   <th style="width:160px">Category</th>
+                  <th style="width:110px">Carpenter</th>
                   <th style="width:190px">Batch / Invoice</th>
                   <th style="width:36px"></th>
                 </tr></thead>
@@ -501,10 +502,10 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:
             <div style="overflow-x:auto">
               <table class="tbl">
                 <thead><tr>
-                  <th>Invoice</th><th>Date</th><th>Vendor</th><th>Species</th>
-                  <th>Slabs</th><th>CBM</th><th title="Wood value only — excl freight, GST">Wood Value ₹</th><th>CBM Issued</th><th>CBM Left</th><th>Rate/CBM ₹</th><th>Status</th>
+                  <th>Invoice</th><th>Bill Date</th><th>Vendor</th><th>Species</th>
+                  <th>Slabs</th><th>Thick mm</th><th>CBM</th><th title="Wood value only — excl freight, GST">Wood Value ₹</th><th>Rate/CBM ₹</th><th>CBM Issued</th><th>CBM Left</th><th>Notes</th><th>Status</th>
                 </tr></thead>
-                <tbody id="bat-tbody"><tr><td colspan="11" style="text-align:center;padding:32px;color:var(--ink3)">Loading…</td></tr></tbody>
+                <tbody id="bat-tbody"><tr><td colspan="13" style="text-align:center;padding:32px;color:var(--ink3)">Loading…</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -715,7 +716,7 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:
               <thead><tr>
                 <th style="width:24px"></th>
                 <th>Date</th><th>Dimensions mm</th><th>CBM</th><th>Cost ₹</th>
-                <th>Client</th><th>Species</th><th>Category</th><th>Batch</th>
+                <th>Client</th><th>Species</th><th>Category</th><th>Carpenter</th><th>Batch</th>
                 <th style="width:56px"></th>
               </tr></thead>
               <tbody id="log-tbody"><tr><td colspan="9" style="text-align:center;padding:32px;color:var(--ink3)">Loading…</td></tr></tbody>
@@ -766,6 +767,7 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:
             <option>Other</option>
           </select>
         </div>
+        <div class="field mb12"><label>Carpenter</label><input type="text" id="ep-carpenter" style="background:var(--paper);border:1.5px solid var(--rule);color:var(--ink);padding:9px 12px;border-radius:3px;font-family:var(--sans);font-size:13px;width:100%"></div>
         <div class="field mb20"><label>Batch / Invoice</label>
           <select id="ep-batch" onchange="calcEpCost()" style="background:var(--paper);border:1.5px solid var(--rule);color:var(--ink);padding:9px 12px;border-radius:3px;font-family:var(--sans);font-size:13px;width:100%">
             <option value="">— no batch —</option>
@@ -1024,6 +1026,7 @@ function addRow(preselBatch, preselCat){
     <td><select id="${id}sp" style="width:96px;background:var(--paper);border:1px solid var(--rule);padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px"><option value="">—</option>${speciesOpts}</select></td>
     <td><input type="text" placeholder="Client" id="${id}c" list="clist" style="width:126px"><datalist id="clist">${copts}</datalist></td>
     <td><select id="${id}cat" style="width:156px;background:var(--paper);border:1px solid var(--rule);padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px;color:var(--ink3)">${catOpts(preselCat||'')}</select></td>
+    <td><input type="text" placeholder="Carpenter" id="${id}carp" style="width:106px;background:var(--paper);border:1px solid var(--rule);padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px"></td>
     <td><select id="${id}b" onchange="onRowBatchChange(${id})" style="width:186px;background:var(--paper);border:1px solid var(--rule);padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px;color:var(--ink3)">${batchOpts(preselBatch||'')}</select></td>
     <td><button class="del-btn" onclick="delRow(${id})">✕</button></td>`;
   document.getElementById('slab-tbody').appendChild(tr);
@@ -1059,8 +1062,9 @@ async function saveIssuances(){
     const inv=document.getElementById(id+'b')?.value||'';
     const species=document.getElementById(id+'sp')?.value||'';
     const category=document.getElementById(id+'cat')?.value||'';
+    const carpenter=document.getElementById(id+'carp')?.value||'';
     if(!l||!w||!t){ok=false;return;}
-    rows.push({date,lengthMM:l,widthMM:w,thickMM:t,cbm:(l*w*t)/1e9,client,invoiceNo:inv,species,category});
+    rows.push({date,lengthMM:l,widthMM:w,thickMM:t,cbm:(l*w*t)/1e9,client,invoiceNo:inv,species,category,carpenter});
   });
   if(!ok){toast('Please fill all dimensions for every row','err');return;}
   if(!rows.length){toast('No rows to save','err');return;}
@@ -1427,15 +1431,17 @@ async function loadBatTable(){
         : `<span style="${woodStyle}">₹${Math.abs(woodVal).toLocaleString('en-IN')}</span>`;
       return `<tr style="${rowStyle}">
         <td class="mono">${invoiceDisplay}</td>
-        <td>${b.date}</td>
-        <td>${b.vendor}</td>
+        <td style="font-size:12px;color:var(--ink3)">${b.date}</td>
+        <td style="font-size:12px">${b.vendor}</td>
         <td>${b.species}</td>
         <td class="mono">${b.slabCount||'—'}</td>
+        <td class="mono">${b.thicknessMM||'—'}</td>
         <td class="mono">${cbmDisplay}</td>
         <td class="mono">${woodDisplay}</td>
+        <td class="mono">₹${parseInt(b.rateCBM).toLocaleString('en-IN')}</td>
         <td class="mono">${parseFloat(b.issuedCBM||0).toFixed(4)}</td>
         <td class="mono" style="${rem<0?'color:var(--red)':''}">${rem.toFixed(4)}</td>
-        <td class="mono">₹${parseInt(b.rateCBM).toLocaleString('en-IN')}</td>
+        <td style="font-size:11px;color:var(--ink3)">${b.notes||'—'}</td>
         <td>${st}</td>
       </tr>`;
     }).join('');
@@ -1674,14 +1680,27 @@ Return ONLY a valid JSON array, no markdown:
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':CFG.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:8000,messages:[{role:'user',content:[
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:16000,messages:[{role:'user',content:[
         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64.split(',')[1]}},
         {type:'text',text:prompt}
       ]}]})
     });
     const data=await resp.json();
     const txt=data.content?.[0]?.text||'[]';
-    const rows=JSON.parse(txt.replace(/```json|```/g,'').trim());
+    let clean = txt.replace(/```json|```/g,'').trim();
+    // If JSON is truncated, try to recover by closing the array
+    let rows;
+    try {
+      rows = JSON.parse(clean);
+    } catch(parseErr) {
+      // Find last complete object ending with }
+      const lastClose = clean.lastIndexOf('}');
+      if(lastClose > 0) {
+        clean = clean.substring(0, lastClose+1) + ']';
+        try { rows = JSON.parse(clean); }
+        catch(e2) { throw new Error('JSON parse failed even after recovery'); }
+      } else throw parseErr;
+    }
 
     aiEl.classList.remove('show');
 
@@ -1757,6 +1776,7 @@ Return ONLY a valid JSON array, no markdown:
         <td><select id="${id}sp" style="width:96px;background:var(--paper);border:1px solid var(--rule);padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px"><option value="">—</option>${['White Oak', 'White Ash', 'Rosewood', 'Uttarakhand Teak', 'CP Teak', 'Siris', 'Agar', 'Eucalyptus', 'Cedar'].map(s=>`<option ${r.species===s?'selected':''}>${s}</option>`).join('')}</select></td>
         <td><input type="text" value="${r.client||''}" id="${id}c" list="clist" style="width:126px${!r.client?';'+missingStyle:''}" placeholder="${!r.client?'⚠ client':''}"><datalist id="clist">${copts}</datalist></td>
         <td><select id="${id}cat" style="width:156px;background:${r.category?'var(--paper)':'#fef8e8'};border:1px solid ${r.category?'var(--rule)':'var(--amber)'};padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px;color:var(--ink3)">${catOpts(r.category||'')}</select></td>
+        <td><input type="text" value="${r.carpenter||''}" id="${id}carp" placeholder="Carpenter" style="width:106px;background:var(--paper);border:1px solid var(--rule);padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px"></td>
         <td><select id="${id}b" onchange="onRowBatchChange(${id})" style="width:186px;background:${rowBatch?'var(--paper)':'#fef8e8'};border:1px solid ${rowBatch?'var(--rule)':'var(--amber)'};padding:6px 8px;border-radius:3px;font-family:var(--sans);font-size:12px;color:var(--ink3)">${bOpts}</select></td>
         <td><button class="del-btn" onclick="delRow(${id})">✕</button></td>`;
       document.getElementById('slab-tbody').appendChild(tr);
@@ -1957,6 +1977,7 @@ function renderLogTable(){
       <td style="font-size:13px">${r.client||'<span style="color:var(--amber)">—</span>'}</td>
       <td style="font-size:13px">${r.species||'<span style="color:var(--amber)">—</span>'}</td>
       <td style="font-size:12px;color:var(--ink3)">${r.category||'<span style="color:var(--amber)">—</span>'}</td>
+      <td style="font-size:12px;color:var(--ink3)">${r.carpenter||'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--ink3)">${r.invoiceNo||'<span style="color:var(--amber)">—</span>'}</td>
       <td><button class="btn btn-g btn-sm" onclick="openEditPanel(${globalIdx})" style="font-size:11px;padding:4px 10px">Edit</button></td>
     </tr>`;
@@ -1974,6 +1995,7 @@ function openEditPanel(idx){
   document.getElementById('ep-client').value=r.client||'';
   document.getElementById('ep-species').value=r.species||'';
   document.getElementById('ep-category').value=r.category||'';
+  document.getElementById('ep-carpenter').value=r.carpenter||'';
   document.getElementById('ep-batch').value=r.invoiceNo||'';
   calcEpCost();
   document.getElementById('edit-panel').style.display='block';
@@ -2015,6 +2037,7 @@ async function saveEditPanel(){
     client:     document.getElementById('ep-client').value.trim(),
     species:    document.getElementById('ep-species').value,
     category:   document.getElementById('ep-category').value,
+    carpenter:  document.getElementById('ep-carpenter').value.trim(),
     invoiceNo:  inv,
     cost,
     vendor:     b?b.vendor:r.vendor||''
