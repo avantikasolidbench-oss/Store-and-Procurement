@@ -586,7 +586,10 @@ body{font-family:var(--sans);background:var(--paper);color:var(--ink);font-size:
         <div class="card mb20" id="ob-card">
           <div class="ch">
             <span class="ct">⚖️ Opening Balance — 31 Mar 2026</span>
-            <button class="btn btn-g btn-sm" id="ob-edit-btn" onclick="toggleObEdit()">Edit</button>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-g btn-sm" id="ob-auto-btn" onclick="autoCalcOB()">⚡ Auto-calculate</button>
+              <button class="btn btn-g btn-sm" id="ob-edit-btn" onclick="toggleObEdit()">Edit</button>
+            </div>
           </div>
           <div class="cb">
             <!-- Display mode -->
@@ -1800,6 +1803,48 @@ Return ONLY a valid JSON array, no markdown:
 // ── OPENING BALANCE ──────────────────────────────────────
 let obEditing = false;
 let obRowCount = 0;
+
+async function autoCalcOB(){
+  const btn = document.getElementById('ob-auto-btn');
+  btn.disabled = true; btn.innerHTML = '<div class="spin" style="border-top-color:var(--ink);border-color:rgba(0,0,0,.2)"></div> Calculating…';
+  try {
+    const r = await apiGet({action:'calcOpeningBalance'});
+    if(!r.rows || !r.rows.length){
+      toast('No batches found with bill date ≤ 31 Mar 2026','err');
+      return;
+    }
+    // Switch to edit mode and pre-fill
+    if(!obEditing) toggleObEdit();
+    document.getElementById('ob-tbody').innerHTML = '';
+    obRowCount = 0;
+    r.rows.forEach(row => addObRow(row));
+    // Show breakdown
+    const breakdown = r.rows.map(row =>
+      `${row.species}: ${row.cbm} CBM → ₹${parseInt(row.value).toLocaleString('en-IN')}`+
+      (row.batches ? ` (${row.batches.map(b=>b.invoiceNo).join(', ')})` : '')
+    ).join('\n');
+    toast(`Auto-calculated ${r.rows.length} species from batches ≤ 31 Mar ✓`, 'ok');
+    // Show detail in a confirm dialog
+    showConfirm(
+      `<strong>⚡ Auto-calculated Opening Balance — 31 Mar 2026</strong><br><br>
+      <div style="font-family:var(--mono);font-size:12px;line-height:2;background:var(--paper);padding:12px;border-radius:3px">
+        ${r.rows.map(row=>`
+          <div><strong>${row.species}</strong></div>
+          <div style="color:var(--ink3);padding-left:12px">
+            ${row.cbm} CBM · ₹${parseInt(row.value).toLocaleString('en-IN')} · ₹${parseInt(row.rate).toLocaleString('en-IN')}/CBM
+          </div>
+          <div style="color:var(--ink3);font-size:10px;padding-left:12px;margin-bottom:8px">
+            From: ${row.batches.map(b=>`${b.invoiceNo} (${b.netCBM} CBM)`).join(', ')}
+          </div>`).join('')}
+      </div><br>
+      You can edit these values before saving.`,
+      () => {}
+    );
+  } catch(e) {
+    toast('Auto-calculate failed: '+e.message, 'err');
+  }
+  btn.disabled = false; btn.innerHTML = '⚡ Auto-calculate';
+}
 
 function toggleObEdit(){
   obEditing = !obEditing;
