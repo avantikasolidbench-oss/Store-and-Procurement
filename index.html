@@ -1674,7 +1674,7 @@ Return ONLY a valid JSON array, no markdown:
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':CFG.key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:[
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:8000,messages:[{role:'user',content:[
         {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64.split(',')[1]}},
         {type:'text',text:prompt}
       ]}]})
@@ -1770,9 +1770,10 @@ Return ONLY a valid JSON array, no markdown:
 
   }catch(e){
     aiEl.classList.remove('show');
-    toast('AI reading failed — switch to manual entry','err');
+    const errMsg = e?.message || String(e);
+    toast('AI reading failed: '+errMsg,'err');
     setMode('manual');
-    console.error(e);
+    console.error('readStoreSheet error:', e);
   }
 }
 
