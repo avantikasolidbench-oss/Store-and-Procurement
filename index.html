@@ -1728,11 +1728,19 @@ async function pullFromSheetsOnLogin(){
           localStorage.setItem('sb_items', JSON.stringify(items));
         }
         if(d.log && Array.isArray(d.log)){
-          issueLog=d.log;
+          // Merge — don't overwrite local entries that aren't in Sheets yet
+          const sheetsFingerprints=new Set(d.log.map(l=>l.date+'|'+l.code+'|'+l.qty));
+          const localOnly=issueLog.filter(l=>!sheetsFingerprints.has(l.date+'|'+l.code+'|'+l.qty));
+          issueLog=[...d.log,...localOnly];
+          issueLog.sort((a,b)=>b.date.localeCompare(a.date));
           localStorage.setItem('sb_log', JSON.stringify(issueLog));
         }
         if(d.bills && Array.isArray(d.bills)){
-          bills=d.bills;
+          // Merge bills — keep local ones not yet in Sheets
+          const sheetsIds=new Set(d.bills.map(b=>b.id));
+          const localOnly=bills.filter(b=>!sheetsIds.has(b.id));
+          bills=[...d.bills,...localOnly];
+          bills.sort((a,b)=>b.id.localeCompare(a.id));
           localStorage.setItem('sb_bills', JSON.stringify(bills));
         }
         renderTable(); populateIssueSelect();
@@ -2409,7 +2417,7 @@ RULES:
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':API_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:msgContent}]})
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:2000,messages:[{role:'user',content:msgContent}]})
     });
     const data=await resp.json();
     if(!resp.ok) throw new Error(data.error?.message||'API error');
@@ -2447,7 +2455,7 @@ Rules:
     const resp2=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':API_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:matchPrompt}]})
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:matchPrompt}]})
     });
     const data2=await resp2.json();
     if(!resp2.ok) throw new Error(data2.error?.message||'Match API error');
@@ -3049,7 +3057,7 @@ Keep each point to 1-2 sentences. Be specific, not generic.`;
     const resp=await fetch('https://api.anthropic.com/v1/messages',{
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':API_KEY,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:800,messages:[{role:'user',content:prompt}]})
+      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:800,messages:[{role:'user',content:prompt}]})
     });
     const data=await resp.json();
     if(!resp.ok) throw new Error(data.error?.message||'API error');
