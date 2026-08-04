@@ -1789,6 +1789,28 @@ async function pushIssueEntry(entry){
     toast('✅ Issued — will sync later','err');
   }
 }
+// Sends ONLY the items that changed. A bad payload can affect at most
+// the items it names — the rest of the inventory is untouched server-side.
+async function pushItemPatch(changed, entry){
+  if(!SHEETS_URL) return false;
+  try{
+    const body={action:'updateItems',
+      changed:changed.map(c=>({code:c.code,qty:c.qty,lastCost:c.lastCost,minLevel:c.minLevel}))};
+    if(entry) body.entry=entry;
+    body.log=issueLog.slice(0,50);
+    const r=await fetch(SHEETS_URL,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.error) throw new Error(d.error);
+    if(d.failed&&d.failed.length) throw new Error(d.failed.join('; '));
+    lastSyncedAt=Date.now(); updateSyncTime();
+    document.getElementById('sheetsStatus').textContent='✅ Synced';
+    return true;
+  }catch(e){
+    console.error('pushItemPatch error:',e);
+    toast('⚠ Saved locally — sync failed: '+e.message,'err');
+    return false;
+  }
+}
 async function pushToSheetsAuto(){
   if(!SHEETS_URL) return;
   try{
@@ -2251,11 +2273,14 @@ async function submitIssue(){
   const it=items[idx];
   if(qty>it.qty&&!confirm(`Only ${it.qty} ${it.uom} available. Issue anyway?`)) return;
   items[idx].qty=Math.max(0,it.qty-qty);
-  issueLog.unshift({date:nowStr(),item:it.name,code:it.code,category:it.category,qty,uom:it.uom,client,by:document.getElementById('issueBy').value.trim(),remarks:document.getElementById('issueRemarks').value.trim(),qtyAfter:items[idx].qty});
+  const logEntry={date:nowStr(),item:it.name,code:it.code,category:it.category,qty,uom:it.uom,client,by:document.getElementById('issueBy').value.trim(),remarks:document.getElementById('issueRemarks').value.trim(),qtyAfter:items[idx].qty};
+  issueLog.unshift(logEntry);
   saveAll();
   ['issueItem','issueQty','issueClient','issueBy','issueRemarks','issueCurrentQty','issueUOM'].forEach(id=>document.getElementById(id).value='');
   renderTable(); toast(`✅ Issued ${qty} ${it.uom} to ${client} — syncing…`);
-  await pushToSheetsAuto();
+  // Send only this one item, not the whole inventory
+  const ok=await pushItemPatch([items[idx]], logEntry);
+  if(ok) toast('✅ Issued & synced');
 }
 
 // ════ LOG ════
