@@ -1771,6 +1771,24 @@ async function pullFromSheetsOnLogin(){
 // Silent push used by save/restock/issue/bill actions
 // Pull-merge-push: fetches current Sheets data first, merges bills & log, then writes
 // This prevents one user's push from wiping another user's concurrent changes
+async function pushIssueEntry(entry){
+  if(!SHEETS_URL) return;
+  try{
+    const itemsForSheets=items.map(it=>({...it,photo:it.photo?'__local__':''}));
+    const r=await fetch(SHEETS_URL,{
+      method:'POST',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify({action:'appendLog',entry,items:itemsForSheets})
+    });
+    const d=await r.json();
+    if(d.error) throw new Error(d.error);
+    lastSyncedAt=Date.now(); updateSyncTime();
+    toast('✅ Issued & synced');
+  } catch(e){
+    console.error('pushIssueEntry error:',e);
+    toast('✅ Issued — will sync later','err');
+  }
+}
 async function pushToSheetsAuto(){
   if(!SHEETS_URL) return;
   try{
@@ -1814,10 +1832,12 @@ async function pushToSheetsAuto(){
 
     // Step 4: Push merged data to Sheets
     const itemsForSheets=items.map(it=>({...it,photo:it.photo?'__local__':''}));
+    // Trim log to last 400 entries for Sheets cell (full history is in IssueLog sheet rows)
+    const logForSheets=mergedLog.slice(0,400);
     const r=await fetch(SHEETS_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'write',items:itemsForSheets,log:mergedLog,bills:mergedBills,audits:auditSessions,pos:purchaseOrders,kits:kitData})
+      body:JSON.stringify({action:'write',items:itemsForSheets,log:logForSheets,bills:mergedBills,audits:auditSessions,pos:purchaseOrders,kits:kitData})
     });
     const d=await r.json();
     if(d.error) throw new Error(d.error);
