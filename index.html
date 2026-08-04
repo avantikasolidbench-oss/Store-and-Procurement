@@ -1792,63 +1792,29 @@ async function pushIssueEntry(entry){
 async function pushToSheetsAuto(){
   if(!SHEETS_URL) return;
   try{
-    // Step 1: Pull latest from Sheets
-    let sheetsItems=null, sheetsLog=null, sheetsBills=null, sheetsAudits=null;
-    try{
-      const rGet=await fetch(SHEETS_URL+'?action=read&t='+Date.now());
-      const dGet=await rGet.json();
-      if(!dGet.error){
-        sheetsItems=dGet.items||null;
-        sheetsLog=dGet.log||null;
-        sheetsBills=dGet.bills||null;
-        sheetsAudits=dGet.audits||null;
-      }
-    } catch(e){ /* Sheets unreachable — push local data as-is */ }
-
-    // Step 2: Merge bills (deduplicate by id — keep all unique bills from both sides)
-    let mergedBills=bills;
-    if(sheetsBills && Array.isArray(sheetsBills)){
-      const localIds=new Set(bills.map(b=>b.id));
-      const onlyInSheets=sheetsBills.filter(b=>!localIds.has(b.id));
-      mergedBills=[...bills,...onlyInSheets];
-      // Sort newest first by id (B+timestamp)
-      mergedBills.sort((a,b)=>b.id.localeCompare(a.id));
-      bills=mergedBills;
-      localStorage.setItem('sb_bills',JSON.stringify(bills));
-    }
-
-    // Step 3: Merge issue log (deduplicate by date+code+qty fingerprint)
-    let mergedLog=issueLog;
-    if(sheetsLog && Array.isArray(sheetsLog)){
-      const localFingerprints=new Set(issueLog.map(l=>l.date+'|'+l.code+'|'+l.qty));
-      const onlyInSheets=sheetsLog.filter(l=>!localFingerprints.has(l.date+'|'+l.code+'|'+l.qty));
-      if(onlyInSheets.length){
-        mergedLog=[...issueLog,...onlyInSheets];
-        mergedLog.sort((a,b)=>b.date.localeCompare(a.date));
-        issueLog=mergedLog;
-        localStorage.setItem('sb_log',JSON.stringify(issueLog));
-      }
-    }
-
-    // Step 4: Push merged data to Sheets
+    // Push local data directly — no pull/merge during push to avoid overwriting fresh local data
     const itemsForSheets=items.map(it=>({...it,photo:it.photo?'__local__':''}));
-    // Trim log to last 400 entries for Sheets cell (full history is in IssueLog sheet rows)
-    const logForSheets=mergedLog.slice(0,400);
+    // Keep only last 300 entries in cell to stay under 50k char limit
+    // Full history is always in the IssueLog sheet rows
+    // Strip heavy fields from log entries before storing in cell
+    const logForSheets=issueLog.slice(0,200).map(l=>({
+      date:l.date,item:l.item,code:l.code,qty:l.qty,uom:l.uom,
+      client:l.client,by:l.by,remarks:l.remarks||''
+    }));
     const r=await fetch(SHEETS_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'write',items:itemsForSheets,log:logForSheets,bills:mergedBills,audits:auditSessions,pos:purchaseOrders,kits:kitData})
+      body:JSON.stringify({action:'write',items:itemsForSheets,log:logForSheets,bills,audits:auditSessions,pos:purchaseOrders,kits:kitData})
     });
     const d=await r.json();
     if(d.error) throw new Error(d.error);
     lastSyncedAt=Date.now(); updateSyncTime();
     toast('✅ Synced to Google Sheets');
     document.getElementById('sheetsStatus').textContent='✅ Synced';
-    // Refresh bills display if on bills tab
     if(activeTab==='bills') renderBills();
   } catch(e){
     console.error('pushToSheetsAuto error:',e);
-    toast('⚠ Saved locally — Sheets sync failed. Use ⟳ Sync to retry.','err');
+    toast('⚠ Sync failed: '+e.message,'err');
   }
 }
 
