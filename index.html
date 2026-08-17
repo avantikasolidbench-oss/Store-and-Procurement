@@ -1832,11 +1832,12 @@ async function pushToSheetsAuto(){
     const r=await fetch(SHEETS_URL,{
       method:'POST',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({action:'write',items:itemsForSheets,log:logForSheets,bills,audits:auditSessions,pos:purchaseOrders,kits:kitData})
+      body:JSON.stringify({action:'write',items:itemsForSheets,log:logForSheets,bills,audits:auditSessions,pos:purchaseOrders,kits:kitData,kitUndo:pendingKitUndo})
     });
     const d=await r.json();
     if(d.error) throw new Error(d.error);
     lastSyncedAt=Date.now(); updateSyncTime();
+    pendingKitUndo=[];          // confirmed by the server, safe to forget
     toast('✅ Synced to Google Sheets');
     document.getElementById('sheetsStatus').textContent='✅ Synced';
     if(activeTab==='bills') renderBills();
@@ -2318,6 +2319,7 @@ function handleDrop(e){
   loadFile(file);
 }
 let scanRotation=0;
+let pendingKitUndo=[];   // recipients whose kit was undone, sent on next sync
 function loadFile(file){
   scanFileType=file.type;
   scanRotation=0;
@@ -3182,7 +3184,7 @@ async function pushToSheets(){
   const btn=event.target; btn.textContent='Pushing…'; btn.disabled=true;
   try{
     const itemsForSheets = items.map(it=>({...it,photo:it.photo?'__local__':''}));
-    const payload = {action:'write',items:itemsForSheets,log:issueLog,bills,audits:auditSessions,pos:purchaseOrders,kits:kitData};
+    const payload = {action:'write',items:itemsForSheets,log:issueLog,bills,audits:auditSessions,pos:purchaseOrders,kits:kitData,kitUndo:pendingKitUndo};
     console.log('Pushing payload size:', JSON.stringify(payload).length, 'bytes');
     console.log('Items count:', itemsForSheets.length, 'Log count:', issueLog.length, 'Bills:', bills.length);
     const r=await fetch(SHEETS_URL,{
@@ -4356,10 +4358,38 @@ function undoKitIssue(recipient){
   const act = kitData.activeKits && kitData.activeKits[recipient];
   if(!act){ toast('No active kit for '+recipient,'err'); return; }
 
-  // Find the [KIT ISSUED] rows this kit created
-  const tag = '[KIT ISSUED] '+recipient;
-  const rows = issueLog.filter(l =>
-    l.client===tag && (l.remarks||'').indexOf('week of '+act.weekStart) !== -1);
+  // Find the [KIT ISSUED] rows this kit created.
+  // Names can change, so try current name, then any recorded former name,
+  // then fall back to the week tag alone.
+  const namesToTry = [recipient].concat(act.formerNames||[]);
+  let rows = [], matchedAs = recipient;
+  for(const nm of namesToTry){
+    rows = issueLog.filter(l =>
+      l.client==='[KIT ISSUED] '+nm && (l.remarks||'').indexOf('week of '+act.weekStart) !== -1);
+    if(rows.length){ matchedAs = nm; break; }
+  }
+
+  if(!rows.length){
+    // Last resort: rows tagged for this week whose recipient no longer exists
+    const live = new Set(getAllRecipients());
+    const orphan = issueLog.filter(l =>
+      (l.client||'').indexOf('[KIT ISSUED] ')===0 &&
+      (l.remarks||'').indexOf('week of '+act.weekStart) !== -1 &&
+      !live.has((l.client||'').replace('[KIT ISSUED] ',''))); 
+    const names = [...new Set(orphan.map(l=>(l.client||'').replace('[KIT ISSUED] ','')))];
+    if(names.length===1){
+      rows = orphan; matchedAs = names[0];
+    } else if(names.length>1){
+      const pick = prompt(
+        `Could not match ${recipient} automatically — they may have been renamed.\n\n`+
+        `Unclaimed kit issues for this week:\n${names.map((n,i)=>`  ${i+1}. ${n}`).join('\n')}\n\n`+
+        `Type the number to undo, or Cancel.`);
+      const idx = parseInt(pick,10);
+      if(!idx || !names[idx-1]) return;
+      matchedAs = names[idx-1];
+      rows = orphan.filter(l => l.client==='[KIT ISSUED] '+matchedAs);
+    }
+  }
 
   if(!rows.length){
     toast('Cannot find the original issue entries — undo aborted','err');
@@ -4373,7 +4403,8 @@ function undoKitIssue(recipient){
     + (rows.length>6 ? `\n  …and ${rows.length-6} more` : '');
 
   if(!confirm(
-    `Undo the ${act.issuedDate} kit issue for ${recipient}?\n\n`+
+    `Undo the ${act.issuedDate} kit issue for ${recipient}?\n`+
+    (matchedAs!==recipient ? `(issued under the earlier name "${matchedAs}")\n` : '')+`\n`+
     `${rows.length} items will be ADDED BACK to stock:\n${preview}\n\n`+
     (hadCheckin ? `NOTE: consumption was already recorded this week — that check-in will also be removed.\n\n` : '')+
     `Only do this if the kit was NOT physically handed over.`)) return;
@@ -4398,6 +4429,9 @@ function undoKitIssue(recipient){
 
   // Clear active status
   delete kitData.activeKits[recipient];
+  // Tell Sheets this was a deliberate undo. The server never infers removals,
+  // so without this the kit would stay active for everyone else.
+  pendingKitUndo = (pendingKitUndo || []).concat([recipient, matchedAs]);
 
   // Audit trail — records that the reversal happened
   issueLog.unshift({
@@ -4724,6 +4758,16 @@ function saveKitsTeam(){
       delete kitData.activeKits[r.orig];
     }
     (kitData.checkins||[]).forEach(c=>{ if(c.recipient===r.orig) c.recipient=r.now; });
+    // Retag existing log rows so Undo can still find them
+    issueLog.forEach(l=>{
+      if(l.client==='[KIT ISSUED] '+r.orig) l.client='[KIT ISSUED] '+r.now;
+      if(l.client==='[KIT UNDO] '+r.orig)   l.client='[KIT UNDO] '+r.now;
+    });
+    // Remember the old name as a safety net
+    if(kitData.activeKits && kitData.activeKits[r.now]){
+      const a=kitData.activeKits[r.now];
+      a.formerNames=(a.formerNames||[]).concat(r.orig);
+    }
   });
 
   if(!kitData.templates) kitData.templates = JSON.parse(JSON.stringify(tpls));
