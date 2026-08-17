@@ -4586,31 +4586,68 @@ function openEditTemplate(key){
   const tpl = tpls[key];
   if(!tpl) return;
 
-  const itemsHtml = (tpl.items||[]).map((ti,idx)=>{
-    const it = items.find(i=>i.code===ti.code);
-    return `<div class="kit-item-row" id="ktrow-${idx}">
-      <span style="font-weight:600;font-size:12px">${it?it.name:ti.code}</span>
-      <span></span>
-      <span style="text-align:right">
-        <input type="number" data-code="${ti.code}" value="${ti.qty}" min="0" step="0.001"
-          style="width:70px;text-align:right;font-family:'DM Mono',monospace;font-size:12px" class="kt-qty-input">
-        <span style="font-size:11px;color:var(--muted);margin-left:3px">${it?it.uom:''}</span>
-      </span>
-      <span></span>
-    </div>`;
-  }).join('');
-
   document.getElementById('kitCheckinModalBody').innerHTML = `
     <div style="font-family:'Syne',sans-serif;font-size:15px;font-weight:700;margin-bottom:4px">${tpl.icon||'🧰'} ${tpl.label}</div>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Edit weekly quantities for each item</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:14px">Edit team members and weekly quantities</div>
     <input type="hidden" id="editTplKey" value="${key}">
+
+    <div style="font-size:12px;font-weight:700;margin:14px 0 6px">👷 TEAM MEMBERS</div>
+    <div id="ktRecipients"></div>
+    <button class="btn btn-outline btn-sm" style="margin-top:6px" onclick="addKtRecipient()">+ Add Person</button>
+
+    <div style="font-size:12px;font-weight:700;margin:18px 0 6px">📦 KIT ITEMS</div>
     <div class="kit-item-row kit-item-hdr"><span>Item</span><span></span><span style="text-align:right">Weekly Qty</span><span></span></div>
-    ${itemsHtml}
+    <div id="ktItems"></div>
+    <div style="display:flex;gap:6px;margin-top:8px">
+      <select id="ktNewItem" style="flex:1;font-size:12px"><option value="">— select item to add —</option></select>
+      <button class="btn btn-outline btn-sm" onclick="addKtItem()">+ Add</button>
+    </div>
+
     <div class="modal-footer">
       <button class="btn btn-outline" onclick="closeModal('kitCheckinModal')">Cancel</button>
       <button class="btn btn-primary" onclick="saveTemplate()">💾 Save Template</button>
     </div>`;
+
+  (tpl.recipients||[]).forEach(r=>addKtRecipient(r));
+  (tpl.items||[]).forEach(ti=>addKtItem(ti.code, ti.qty));
+
+  const sel=document.getElementById('ktNewItem');
+  [...items].sort((a,b)=>(a.name||'').localeCompare(b.name||''))
+    .forEach(i=>{ const o=document.createElement('option'); o.value=i.code; o.textContent=`${i.name} (${i.uom||''})`; sel.appendChild(o); });
+
   openModal('kitCheckinModal');
+}
+
+function addKtRecipient(name){
+  const wrap=document.getElementById('ktRecipients');
+  const row=document.createElement('div');
+  row.style.cssText='display:flex;gap:6px;margin-bottom:5px;align-items:center';
+  row.innerHTML=`<input type="text" class="kt-recipient" value="${(name||'').replace(/"/g,'&quot;')}" placeholder="Name e.g. Raju"
+      style="flex:1;font-size:12px;padding:5px 8px">
+    <button class="btn btn-outline btn-sm" style="color:#c0392b;padding:4px 9px" title="Remove"
+      onclick="this.parentElement.remove()">✕</button>`;
+  wrap.appendChild(row);
+}
+
+function addKtItem(code, qty){
+  const sel=document.getElementById('ktNewItem');
+  if(!code){ code=sel.value; if(!code){ toast('Pick an item first','err'); return; } qty=1; }
+  if(document.querySelector(`.kt-qty-input[data-code="${code}"]`)){ toast('Already in this kit','err'); sel.value=''; return; }
+
+  const it=items.find(i=>i.code===code);
+  const row=document.createElement('div');
+  row.className='kit-item-row';
+  row.innerHTML=`<span style="font-weight:600;font-size:12px">${it?it.name:code}</span>
+    <span></span>
+    <span style="text-align:right">
+      <input type="number" data-code="${code}" value="${qty}" min="0" step="0.001"
+        style="width:70px;text-align:right;font-family:'DM Mono',monospace;font-size:12px" class="kt-qty-input">
+      <span style="font-size:11px;color:var(--muted);margin-left:3px">${it?it.uom||'':''}</span>
+    </span>
+    <span style="text-align:right"><button class="btn btn-outline btn-sm" style="color:#c0392b;padding:2px 7px"
+      title="Remove from kit" onclick="this.closest('.kit-item-row').remove()">✕</button></span>`;
+  document.getElementById('ktItems').appendChild(row);
+  sel.value='';
 }
 
 function saveTemplate(){
@@ -4618,17 +4655,34 @@ function saveTemplate(){
   if(!key) return;
   const tpls = getKitTemplates();
   const tpl = JSON.parse(JSON.stringify(tpls[key]));
-  document.querySelectorAll('.kt-qty-input').forEach(inp=>{
-    const code = inp.dataset.code;
-    const ti = tpl.items.find(t=>t.code===code);
-    if(ti) ti.qty = parseFloat(inp.value)||ti.qty;
-  });
-  if(!kitData.templates) kitData.templates = {};
-  kitData.templates[key] = tpl;
+
+  const names=[...document.querySelectorAll('.kt-recipient')]
+    .map(i=>i.value.trim()).filter(v=>v);
+  if(!names.length){ toast('Add at least one team member','err'); return; }
+  if(new Set(names.map(n=>n.toLowerCase())).size !== names.length){ toast('Duplicate names — each must be unique','err'); return; }
+
+  const newItems=[...document.querySelectorAll('.kt-qty-input')].map(inp=>({
+    code: inp.dataset.code, qty: parseFloat(inp.value)||0
+  })).filter(t=>t.qty>0);
+  if(!newItems.length){ toast('Kit needs at least one item with qty above 0','err'); return; }
+
+  // Warn if renaming a person who has an active kit or check-in history
+  const removed=(tpl.recipients||[]).filter(r=>!names.includes(r));
+  const withHistory=removed.filter(r =>
+    (kitData.activeKits && kitData.activeKits[r]) ||
+    (kitData.checkins||[]).some(c=>c.recipient===r));
+  if(withHistory.length && !confirm(
+      `${withHistory.join(', ')} — removed from this kit but has an issued kit or check-in history.\n\nThat history stays in the records but will no longer show here.\n\nContinue?`)) return;
+
+  tpl.recipients=names;
+  tpl.items=newItems;
+  if(!kitData.templates) kitData.templates={};
+  kitData.templates[key]=tpl;
   saveAll();
   closeModal('kitCheckinModal');
   toast('✅ Template saved');
   renderKitsTemplates();
+  if(typeof renderKitsIssue==='function') renderKitsIssue();
   pushToSheetsAuto();
 }
 
